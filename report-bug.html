@@ -205,40 +205,61 @@
     /* ── Footer year ── */
     document.getElementById('footer-year').textContent = new Date().getFullYear();
 
-    /* ── Form submission ── */
-    document.getElementById('bug-form').addEventListener('submit', function (e) {
-      e.preventDefault();
-
-      const form      = e.target;
-      const submitBtn = document.getElementById('submit-btn');
-      const submitLbl = document.getElementById('submit-label');
-      const alert     = document.getElementById('form-alert');
-
-      const data = {
-        title:       form.title.value.trim(),
-        bug_url:     form.bug_url.value.trim(),
-        description: form.description.value.trim(),
-      };
-
-      /* Basic validation */
-      if (!data.title || !data.bug_url || !data.description) {
-        showAlert(alert, 'error', 'Please fill in all required fields.');
-        return;
+    /* ── Anonymous mode notice ── */
+    if (new URLSearchParams(window.location.search).get('anonymous') === 'true') {
+      const form = document.getElementById('bug-form');
+      if (form) {
+        const notice = document.createElement('div');
+        notice.className = 'mb-6 rounded-xl p-4 text-sm bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-800';
+        notice.setAttribute('role', 'note');
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-circle-info mr-2';
+        icon.setAttribute('aria-hidden', 'true');
+        notice.appendChild(icon);
+        notice.appendChild(document.createTextNode(
+          'Anonymous reporting via BLT-API is coming soon. Your report will open a GitHub issue — a GitHub account is required to submit.'
+        ));
+        form.prepend(notice);
       }
+    }
 
-      submitBtn.disabled = true;
-      submitLbl.textContent = 'Opening…';
-      alert.classList.add('hidden');
+    /* ── Form submission ── */
+    const bugForm = document.getElementById('bug-form');
+    if (bugForm) {
+      bugForm.addEventListener('submit', function (e) {
+        e.preventDefault();
 
-      window.open(buildGithubUrl(data), '_blank', 'noopener,noreferrer');
-      showAlert(alert, 'success',
-        `<i class="fa-solid fa-circle-check mr-2" aria-hidden="true"></i>
-         GitHub issue editor opened in a new tab. Sign in with your GitHub account to submit.`
-      );
+        const form      = e.target;
+        const submitBtn = document.getElementById('submit-btn');
+        const submitLbl = document.getElementById('submit-label');
+        const alert     = document.getElementById('form-alert');
 
-      submitBtn.disabled = false;
-      submitLbl.textContent = 'Open GitHub Issue';
-    });
+        const data = {
+          title:       form.title.value.trim(),
+          bug_url:     form.bug_url.value.trim(),
+          description: form.description.value.trim(),
+        };
+
+        /* Basic validation */
+        if (!data.title || !data.bug_url || !data.description) {
+          showAlert(alert, 'error', 'Please fill in all required fields.');
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitLbl.textContent = 'Opening…';
+        alert.classList.add('hidden');
+
+        window.open(buildGithubUrl(data), '_blank', 'noopener,noreferrer');
+        showAlert(alert, 'success',
+          `<i class="fa-solid fa-circle-check mr-2" aria-hidden="true"></i>
+           GitHub issue editor opened in a new tab. Sign in with your GitHub account to submit.`
+        );
+
+        submitBtn.disabled = false;
+        submitLbl.textContent = 'Open GitHub Issue';
+      });
+    }
 
     function buildGithubUrl(data) {
       const params = new URLSearchParams({
