@@ -289,6 +289,14 @@
             <h3 class="text-base font-bold text-gray-900 dark:text-gray-100">Reporter revenue sharing</h3>
             <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Commercial plan users can share a percentage of subscription value with contributing reporters.</p>
           </article>
+
+          <article class="surface-card rounded-2xl p-5">
+            <div class="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-50 dark:bg-yellow-950/30">
+              <span class="text-lg" aria-hidden="true">🥓</span>
+            </div>
+            <h3 class="text-base font-bold text-gray-900 dark:text-gray-100">Bacon token rewards</h3>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Earn one bacon token for every new domain you report on. Discover and report bugs across the web to grow your token balance.</p>
+          </article>
         </div>
       </div>
     </section>
@@ -477,12 +485,13 @@
                 <th scope="col" class="w-12 px-4 py-3 text-center">Rank</th>
                 <th scope="col" class="px-4 py-3">Reporter</th>
                 <th scope="col" class="px-4 py-3 text-right">Bugs</th>
+                <th scope="col" class="px-4 py-3 text-right">Bacon 🥓</th>
                 <th scope="col" class="hidden px-4 py-3 pr-6 text-right sm:table-cell">Activity</th>
               </tr>
             </thead>
             <tbody id="leaderboard-rows" class="divide-y divide-neutral-border dark:divide-gray-700">
               <tr>
-                <td colspan="4" class="py-12 text-center text-gray-400 dark:text-gray-500">
+                <td colspan="5" class="py-12 text-center text-gray-400 dark:text-gray-500">
                   <i class="fa-solid fa-circle-notch fa-spin mb-3 block text-2xl" aria-hidden="true"></i>
                   Loading leaderboard...
                 </td>
@@ -494,6 +503,7 @@
         <p class="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
           Leaderboard refreshes every 6 hours via GitHub Actions.
           <a href="https://github.com/OWASP-BLT/BLT-Pages/issues?q=label%3Abug" target="_blank" rel="noopener noreferrer" class="text-red-600 hover:underline dark:text-red-400">View all reports on GitHub</a>.
+          · 🥓 Bacon tokens are awarded for each unique new domain reported on.
         </p>
 
         <!-- Top Commenters -->

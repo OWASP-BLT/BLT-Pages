@@ -69,7 +69,7 @@ jobs:
             const bugIssues = issues.filter(i => !i.pull_request);
 
             // Tally reporters and extract org names
-            const counts  = {};   // login → { count, avatar_url, profile_url }
+            const counts  = {};   // login → { count, avatar_url, profile_url, domains }
             const orgSet  = new Set();
 
             for (const issue of bugIssues) {
@@ -80,6 +80,7 @@ jobs:
                   count:       0,
                   avatar_url:  issue.user.avatar_url,
                   profile_url: issue.user.html_url,
+                  domains:     new Set(),
                 };
               }
               counts[login].count++;
@@ -90,18 +91,6 @@ jobs:
                 if (match) orgSet.add(match[1].trim().split('\n')[0]);
               }
             }
-
-            // Sort descending by report count
-            const leaderboard = Object.entries(counts)
-              .sort(([, a], [, b]) => b.count - a.count)
-              .slice(0, 50)
-              .map(([login, data], idx) => ({
-                rank:        idx + 1,
-                login,
-                count:       data.count,
-                avatar_url:  data.avatar_url,
-                profile_url: data.profile_url,
-              }));
 
             // Extract domain from the URL field in an issue body
             function extractDomain(body) {
@@ -117,16 +106,34 @@ jobs:
               try { return new URL(rawUrl).hostname || null; } catch { return null; }
             }
 
-            // Build top-domains leaderboard
+            // Build top-domains leaderboard and track per-user unique domains for bacon tokens
             const domainCounts = {};
             for (const issue of bugIssues) {
               const domain = extractDomain(issue.body);
-              if (domain) domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+              if (domain) {
+                domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+                if (counts[issue.user.login]) {
+                  counts[issue.user.login].domains.add(domain);
+                }
+              }
             }
             const topDomains = Object.entries(domainCounts)
               .sort(([, a], [, b]) => b - a)
               .slice(0, 20)
               .map(([domain, count], idx) => ({ rank: idx + 1, domain, count }));
+
+            // Sort descending by report count; bacon_tokens = unique domains reported on
+            const leaderboard = Object.entries(counts)
+              .sort(([, a], [, b]) => b.count - a.count)
+              .slice(0, 50)
+              .map(([login, data], idx) => ({
+                rank:         idx + 1,
+                login,
+                count:        data.count,
+                bacon_tokens: data.domains.size,
+                avatar_url:   data.avatar_url,
+                profile_url:  data.profile_url,
+              }));
 
             // Build top-commenters leaderboard (fetch all issues' comments in parallel)
             const commentCounts = {};
