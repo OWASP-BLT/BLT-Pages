@@ -205,7 +205,9 @@ async function loadLeaderboardFromAPI(container, statBugs, statDomains, statRepo
   for (const issue of issues) {
     if (issue.pull_request) continue;
     const user = issue.user.login;
-    counts[user] = (counts[user] || { count: 0, avatar_url: issue.user.avatar_url, profile_url: issue.user.html_url });
+    if (!counts[user]) {
+      counts[user] = { count: 0, avatar_url: issue.user.avatar_url, profile_url: issue.user.html_url, domains: new Set() };
+    }
     counts[user].count++;
 
     // Extract domain from URL field
@@ -221,6 +223,7 @@ async function loadLeaderboardFromAPI(container, statBugs, statDomains, statRepo
         const domain = new URL(rawUrl).hostname;
         if (domain) {
           domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+          counts[user].domains.add(domain);
         }
       } catch { /* ignore malformed URLs */ }
     }
@@ -229,7 +232,7 @@ async function loadLeaderboardFromAPI(container, statBugs, statDomains, statRepo
   const leaderboard = Object.entries(counts)
     .sort(([, a], [, b]) => b.count - a.count)
     .slice(0, 50)
-    .map(([login, data], idx) => ({ rank: idx + 1, login, ...data }));
+    .map(([login, data], idx) => ({ rank: idx + 1, login, count: data.count, bacon_tokens: data.domains.size, avatar_url: data.avatar_url, profile_url: data.profile_url }));
 
   const topDomains = Object.entries(domainCounts)
     .sort(([, a], [, b]) => b - a)
@@ -257,7 +260,7 @@ async function loadLeaderboardFromAPI(container, statBugs, statDomains, statRepo
 
 function renderLeaderboard(container, data) {
   if (!data.leaderboard || data.leaderboard.length === 0) {
-    container.innerHTML = `<tr><td colspan="4" class="text-center py-12 text-gray-500 dark:text-gray-400">
+    container.innerHTML = `<tr><td colspan="5" class="text-center py-12 text-gray-500 dark:text-gray-400">
       <i class="fa-solid fa-trophy text-4xl text-gray-300 dark:text-gray-600 block mb-3" aria-hidden="true"></i>
       No reports yet. Be the first to <a href="https://github.com/OWASP-BLT/BLT-Pages/issues/new?template=bug_report.yml" class="text-primary underline hover:no-underline">report a bug</a>!
     </td></tr>`;
@@ -298,6 +301,11 @@ function renderLeaderboard(container, data) {
           <span class="inline-flex items-center gap-1 font-bold text-gray-900 dark:text-white">
             <i class="fa-solid fa-bug text-primary text-xs" aria-hidden="true"></i>
             ${formatNumber(entry.count)}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-right">
+          <span class="inline-flex items-center gap-1 font-bold text-yellow-700 dark:text-yellow-400" title="Bacon tokens earned for reporting on unique new domains">
+            🥓 ${formatNumber(entry.bacon_tokens || 0)}
           </span>
         </td>
         <td class="px-4 py-3 hidden sm:table-cell">
