@@ -53,6 +53,15 @@ jobs:
           script: |
             const fs = require('fs');
 
+            // Preserve distributed_tokens from previous run so on-chain history is not lost
+            let prevDistributed = {};
+            try {
+              const prevData = JSON.parse(fs.readFileSync('data/leaderboard.json', 'utf8'));
+              for (const entry of (prevData.leaderboard || [])) {
+                prevDistributed[entry.login] = entry.distributed_tokens || 0;
+              }
+            } catch { /* first run — no previous data */ }
+
             // Fetch all issues labelled "bug" (paginate through all pages)
             const issues = await github.paginate(
               github.rest.issues.listForRepo,
@@ -123,7 +132,7 @@ jobs:
               .map(([domain, count], idx) => ({ rank: idx + 1, domain, count }));
 
             // Sort descending by report count; bacon_tokens = unique domains reported on
-            const leaderboard = Object.entries(counts)
+            const leaderboardBase = Object.entries(counts)
               .sort(([, a], [, b]) => b.count - a.count)
               .slice(0, 50)
               .map(([login, data], idx) => ({
@@ -134,6 +143,31 @@ jobs:
                 avatar_url:   data.avatar_url,
                 profile_url:  data.profile_url,
               }));
+
+            // Fetch GitHub profile bios to extract Solana wallet addresses.
+            // A Solana public key is 32-44 base58 characters; require 43-44 to reduce false positives.
+            // Users can place their address anywhere in their bio, optionally prefixed with
+            // "sol:", "solana:", or "wallet:" (case-insensitive).
+            const SOLANA_ADDR_RE = /(?:sol(?:ana)?[:\s]+|wallet[:\s]+)?([1-9A-HJ-NP-Za-km-z]{43,44})\b/i;
+            const walletMap = {};
+            await Promise.all(
+              leaderboardBase.map(async ({ login }) => {
+                try {
+                  const { data: user } = await github.rest.users.getByUsername({ username: login });
+                  const bio = user.bio || '';
+                  const match = bio.match(SOLANA_ADDR_RE);
+                  walletMap[login] = match ? match[1] : null;
+                } catch {
+                  walletMap[login] = null;
+                }
+              })
+            );
+
+            const leaderboard = leaderboardBase.map(entry => ({
+              ...entry,
+              solana_wallet:      walletMap[entry.login] || null,
+              distributed_tokens: prevDistributed[entry.login] || 0,
+            }));
 
             // Build top-commenters leaderboard (fetch all issues' comments in parallel)
             const commentCounts = {};
@@ -235,6 +269,107 @@ jobs:
           # Only commit and push if there are actual changes
           if ! git diff --staged --quiet; then
             git commit -m "chore: update leaderboard data [skip ci]"
+            git pull --rebase
+            git push
+          fi
+
+      - name: Distribute BACON tokens on Solana
+        env:
+          SOLANA_DISTRIBUTOR_KEY: ${{ secrets.SOLANA_DISTRIBUTOR_KEY }}
+          SOLANA_BACON_MINT: ${{ secrets.SOLANA_BACON_MINT }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+        run: |
+          if [ -z "$SOLANA_DISTRIBUTOR_KEY" ] || [ -z "$SOLANA_BACON_MINT" ]; then
+            echo "SOLANA_DISTRIBUTOR_KEY or SOLANA_BACON_MINT not configured — skipping Solana distribution"
+            exit 0
+          fi
+
+          # Install Solana packages into a temp directory to keep the repo clean
+          mkdir -p /tmp/bacon-dist
+          cd /tmp/bacon-dist
+          npm init -y --quiet
+          npm install --quiet "@solana/web3.js@1.98.4" "@solana/spl-token@0.4.14"
+
+          # Write the distribution script
+          cat > distribute.cjs << 'DIST_SCRIPT'
+          'use strict';
+          const { Connection, Keypair, PublicKey } = require('@solana/web3.js');
+          const { getOrCreateAssociatedTokenAccount, transfer, getMint } = require('@solana/spl-token');
+          const fs = require('fs');
+
+          async function main() {
+            const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+            const connection = new Connection(rpcUrl, 'confirmed');
+
+            // Distributor keypair: base64-encoded JSON byte array stored as a GitHub secret
+            const keypairBytes = Buffer.from(process.env.SOLANA_DISTRIBUTOR_KEY, 'base64');
+            const distributorKeypair = Keypair.fromSecretKey(
+              new Uint8Array(JSON.parse(keypairBytes.toString()))
+            );
+
+            const mintPubkey = new PublicKey(process.env.SOLANA_BACON_MINT);
+            const mintInfo = await getMint(connection, mintPubkey);
+            const tokenMultiplier = BigInt(10 ** mintInfo.decimals);
+
+            const leaderboardPath = process.env.LEADERBOARD_PATH;
+            const data = JSON.parse(fs.readFileSync(leaderboardPath, 'utf8'));
+
+            const distributorATA = await getOrCreateAssociatedTokenAccount(
+              connection, distributorKeypair, mintPubkey, distributorKeypair.publicKey
+            );
+
+            let anyUpdated = false;
+            for (const entry of data.leaderboard) {
+              if (!entry.solana_wallet) continue;
+              const pending = entry.bacon_tokens - (entry.distributed_tokens || 0);
+              if (pending <= 0) continue;
+
+              let recipientPubkey;
+              try {
+                recipientPubkey = new PublicKey(entry.solana_wallet);
+              } catch {
+                console.error(`Skipping ${entry.login}: invalid Solana address "${entry.solana_wallet}"`);
+                continue;
+              }
+
+              try {
+                const recipientATA = await getOrCreateAssociatedTokenAccount(
+                  connection, distributorKeypair, mintPubkey, recipientPubkey
+                );
+                await transfer(
+                  connection,
+                  distributorKeypair,
+                  distributorATA.address,
+                  recipientATA.address,
+                  distributorKeypair.publicKey,
+                  BigInt(pending) * tokenMultiplier
+                );
+                entry.distributed_tokens = entry.bacon_tokens;
+                anyUpdated = true;
+                console.log(`Sent ${pending} BACON → ${entry.login} (${entry.solana_wallet})`);
+              } catch (err) {
+                console.error(`Failed to send ${pending} BACON to ${entry.login} (${entry.solana_wallet}): ${err.message}`);
+              }
+            }
+
+            if (anyUpdated) {
+              fs.writeFileSync(leaderboardPath, JSON.stringify(data, null, 2) + '\n');
+              console.log('Updated distributed_tokens in leaderboard.json');
+            }
+          }
+
+          main().catch(err => { console.error(err.message); process.exit(1); });
+          DIST_SCRIPT
+
+          LEADERBOARD_PATH="$GITHUB_WORKSPACE/data/leaderboard.json" node distribute.cjs
+
+          # Commit updated distributed_tokens if anything changed
+          cd "$GITHUB_WORKSPACE"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
+          git add data/leaderboard.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: record BACON token distributions [skip ci]"
             git pull --rebase
             git push
           fi

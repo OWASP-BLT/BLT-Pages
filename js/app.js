@@ -281,6 +281,16 @@ function renderLeaderboard(container, data) {
           ? "bg-active-bg dark:bg-red-900/10"
           : "hover:bg-gray-50 dark:hover:bg-gray-800/50";
 
+      const walletHtml = entry.solana_wallet
+        ? `<span title="Solana wallet configured: ${escapeHtml(entry.solana_wallet.slice(0, 8))}…${escapeHtml(entry.solana_wallet.slice(-4))}" class="ml-1.5 text-xs text-purple-500 dark:text-purple-400">
+            <i class="fa-solid fa-wallet" aria-hidden="true"></i>
+            <span class="sr-only">Solana wallet configured</span>
+           </span>`
+        : `<span title="Add your Solana wallet address to your GitHub bio to receive BACON tokens on-chain" class="ml-1.5 text-xs text-gray-300 dark:text-gray-600">
+            <i class="fa-solid fa-wallet" aria-hidden="true"></i>
+            <span class="sr-only">No Solana wallet configured — add your address to your GitHub bio</span>
+           </span>`;
+
       return `<tr class="${rowClass} transition-colors">
         <td class="px-4 py-3 text-center w-12">${rankDisplay}</td>
         <td class="px-4 py-3">
@@ -307,6 +317,7 @@ function renderLeaderboard(container, data) {
           <span class="inline-flex items-center gap-1 font-bold text-yellow-700 dark:text-yellow-400" title="Bacon tokens earned for reporting on unique new domains">
             🥓 ${formatNumber(entry.bacon_tokens || 0)}
           </span>
+          ${walletHtml}
         </td>
         <td class="px-4 py-3 hidden sm:table-cell">
           <div class="flex justify-end">
