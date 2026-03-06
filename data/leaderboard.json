@@ -130,7 +130,14 @@
       "reactions": {
         "eyes": 1
       },
-      "latest_comment": null
+      "latest_comment": null,
+      "linked_pr": {
+        "number": 71,
+        "title": "Update Twitter link to X.com for OWASP",
+        "html_url": "https://github.com/OWASP-BLT/BLT-Pages/pull/71",
+        "state": "open",
+        "merged": false
+      }
     },
     {
       "number": 17,
@@ -148,7 +155,8 @@
       "reactions": {
         "+1": 1
       },
-      "latest_comment": null
+      "latest_comment": null,
+      "linked_pr": null
     },
     {
       "number": 8,
@@ -173,7 +181,8 @@
           "avatar_url": "https://avatars.githubusercontent.com/u/82692857?v=4",
           "profile_url": "https://github.com/swaparup36"
         }
-      }
+      },
+      "linked_pr": null
     }
   ]
 }
