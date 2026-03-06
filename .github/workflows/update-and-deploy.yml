@@ -272,9 +272,54 @@ jobs:
             const sortedByDate = [...bugIssues].filter(i => i.state === 'open').sort(
               (a, b) => new Date(b.created_at) - new Date(a.created_at)
             );
-            const recentBugs = sortedByDate.slice(0, 3).map(issue => {
+            const recentIssues = sortedByDate.slice(0, 3);
+
+            // Fetch timeline events for each recent bug to find linked PRs
+            const recentTimelines = await Promise.all(
+              recentIssues.map(issue =>
+                github.paginate(
+                  github.rest.issues.listEventsForTimeline,
+                  {
+                    owner: context.repo.owner,
+                    repo:  context.repo.repo,
+                    issue_number: issue.number,
+                    per_page: 100,
+                  }
+                ).catch(() => [])
+              )
+            );
+
+            function extractLinkedPR(timelineEvents) {
+              const candidates = timelineEvents
+                .filter(e =>
+                  e.event === 'cross-referenced' &&
+                  e.source?.type === 'pull_request' &&
+                  e.source?.issue?.pull_request &&
+                  e.source?.issue?.html_url?.includes('/pull/')
+                )
+                .map(e => {
+                  const pr = e.source.issue;
+                  const merged = pr.pull_request?.merged_at != null;
+                  return {
+                    number:   pr.number,
+                    title:    pr.title,
+                    html_url: pr.html_url,
+                    state:    merged ? 'merged' : pr.state,
+                    merged,
+                  };
+                });
+              return (
+                candidates.find(p => p.state === 'open') ||
+                candidates.find(p => p.state === 'merged') ||
+                candidates[0] ||
+                null
+              );
+            }
+
+            const recentBugs = recentIssues.map((issue, idx) => {
               const comments = issueCommentsMap[issue.number] || [];
               const latestComment = comments.length > 0 ? comments[comments.length - 1] : null;
+              const linked_pr = extractLinkedPR(recentTimelines[idx] || []);
               return {
                 number:        issue.number,
                 title:         issue.title,
@@ -306,6 +351,7 @@ jobs:
                     profile_url: latestComment.user.html_url,
                   },
                 } : null,
+                linked_pr,
               };
             });
 
@@ -379,6 +425,19 @@ jobs:
                   return `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors align-middle" title="${label}" aria-label="${label}"><span aria-hidden="true">${emoji}</span><span class="font-medium">${count}</span></span>`;
                 })
                 .join(' ');
+            }
+            function ssrPrBadge(pr) {
+              if (!pr) return '';
+              let cls;
+              if (pr.state === 'open') {
+                cls = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+              } else if (pr.state === 'merged') {
+                cls = 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+              } else {
+                cls = 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400';
+              }
+              const label = pr.state === 'merged' ? 'Merged' : pr.state === 'open' ? 'Open' : 'Closed';
+              return `<a href="${escHtml(pr.html_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold ${cls} hover:opacity-80 transition-opacity flex-shrink-0" title="${escHtml(pr.title)}" aria-label="${escHtml(label)} PR #${pr.number}: ${escHtml(pr.title)}"><svg class="fa-icon text-xs" aria-hidden="true"><use href="#fa-code-branch"></use></svg>${escHtml(label)} PR #${pr.number}</a>`;
             }
             const rankIcons = ['🥇','🥈','🥉'];
             const SAFE_HOSTNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]?(?:\.[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]?)*$/;
@@ -550,7 +609,8 @@ jobs:
                 } else if (typeof commentCount === 'number' && commentCount === 0) {
                   commentHtml = `<div class="mt-3 pt-3 border-t border-neutral-border dark:border-gray-700"><a href="${escHtml(bug.html_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs text-primary hover:underline"><i class="fa-solid fa-comment text-xs" aria-hidden="true"></i>Be the first to comment</a></div>`;
                 }
-                return `<div class="bg-white dark:bg-dark-base border border-neutral-border dark:border-gray-700 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col">${imgHtml}<h3 class="font-semibold text-gray-900 dark:text-white mb-3 line-clamp-2 flex-1"><a href="${escHtml(bug.html_url)}" target="_blank" rel="noopener noreferrer" class="hover:text-primary transition-colors">${faviconHtml}${escHtml(bug.title)}</a></h3><div class="flex items-center justify-between gap-3 mt-auto pt-3 border-t border-neutral-border dark:border-gray-700 flex-wrap"><div class="flex items-center gap-3"><a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 group"><img src="${avatarUrl}" alt="${login}&#039;s avatar" class="w-7 h-7 rounded-full border border-neutral-border dark:border-gray-700" loading="lazy" onerror="this.src=&#039;https://github.com/identicons/${login}.png&#039;" /><span class="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-primary transition-colors">${login}</span></a>${reactionsHtml}</div><span class="text-xs text-gray-400 dark:text-gray-500">${date}</span></div>${commentHtml}</div>`;
+                const prBadgeHtml = ssrPrBadge(bug.linked_pr);
+                return `<div class="bg-white dark:bg-dark-base border border-neutral-border dark:border-gray-700 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col">${imgHtml}<h3 class="font-semibold text-gray-900 dark:text-white mb-3 line-clamp-2 flex-1"><a href="${escHtml(bug.html_url)}" target="_blank" rel="noopener noreferrer" class="hover:text-primary transition-colors">${faviconHtml}${escHtml(bug.title)}</a></h3><div class="flex items-center justify-between gap-3 mt-auto pt-3 border-t border-neutral-border dark:border-gray-700 flex-wrap"><div class="flex items-center gap-3"><a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 group"><img src="${avatarUrl}" alt="${login}&#039;s avatar" class="w-7 h-7 rounded-full border border-neutral-border dark:border-gray-700" loading="lazy" onerror="this.src=&#039;https://github.com/identicons/${login}.png&#039;" /><span class="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-primary transition-colors">${login}</span></a>${reactionsHtml}</div><div class="flex items-center gap-2 flex-wrap justify-end">${prBadgeHtml}<span class="text-xs text-gray-400 dark:text-gray-500">${date}</span></div></div>${commentHtml}</div>`;
               }).join('');
             }
             html = html.replace(

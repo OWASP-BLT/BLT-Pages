@@ -525,6 +525,49 @@ async function loadRecentBugsFromAPI(grid) {
           );
         }
 
+        // -------------------------
+        // Fetch linked PR via timeline
+        // -------------------------
+        let linked_pr = null;
+        try {
+          const timelineRes = await fetch(
+            `${baseUrl}/issues/${issue.number}/timeline?per_page=100`,
+            { headers: { Accept: "application/vnd.github+json" } }
+          );
+          if (timelineRes.ok) {
+            const events = await timelineRes.json();
+            const prCandidates = events
+              .filter(
+                (e) =>
+                  e.event === "cross-referenced" &&
+                  e.source?.type === "pull_request" &&
+                  e.source?.issue?.pull_request &&
+                  e.source?.issue?.html_url?.includes("/pull/")
+              )
+              .map((e) => {
+                const pr = e.source.issue;
+                const merged = pr.pull_request?.merged_at != null;
+                return {
+                  number: pr.number,
+                  title: pr.title,
+                  html_url: pr.html_url,
+                  state: merged ? "merged" : pr.state,
+                  merged,
+                };
+              });
+            linked_pr =
+              prCandidates.find((p) => p.state === "open") ||
+              prCandidates.find((p) => p.state === "merged") ||
+              prCandidates[0] ||
+              null;
+          }
+        } catch (error) {
+          console.warn(
+            `Failed to fetch timeline for issue #${issue.number}`,
+            error
+          );
+        }
+
         return {
           number: issue.number,
           title: issue.title,
@@ -540,6 +583,7 @@ async function loadRecentBugsFromAPI(grid) {
           domain,
           latest_comment: latestComment,
           reactions,
+          linked_pr,
         };
       })
   );
@@ -609,6 +653,28 @@ function renderRecentBugs(bugs) {
                 onerror="this.outerHTML='<svg class=\'fa-icon text-gray-400 w-4 h-4\' aria-hidden=\'true\'><use href=\'#fa-globe\'></use></svg>'" />`
         : "";
 
+      // Linked PR badge
+      let prBadgeHtml = "";
+      if (bug.linked_pr) {
+        const pr = bug.linked_pr;
+        let prClasses;
+        if (pr.state === "open") {
+          prClasses = "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+        } else if (pr.state === "merged") {
+          prClasses = "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
+        } else {
+          prClasses = "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400";
+        }
+        const prLabel = pr.state === "merged" ? "Merged" : pr.state === "open" ? "Open" : "Closed";
+        prBadgeHtml = `<a href="${escapeHtml(pr.html_url)}" target="_blank" rel="noopener noreferrer"
+             class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold ${prClasses} hover:opacity-80 transition-opacity flex-shrink-0"
+             title="${escapeHtml(pr.title)}"
+             aria-label="${escapeHtml(prLabel)} PR #${pr.number}: ${escapeHtml(pr.title)}">
+          <svg class="fa-icon text-xs" aria-hidden="true"><use href="#fa-code-branch"></use></svg>
+          ${escapeHtml(prLabel)} PR #${pr.number}
+        </a>`;
+      }
+
       // Comment section
       let commentHtml = "";
       const commentCount = bug.comment_count;
@@ -671,7 +737,10 @@ function renderRecentBugs(bugs) {
             </a>
             ${reactionsHtml}
           </div>
-          <span class="text-xs text-gray-400 dark:text-gray-500">${date}</span>
+          <div class="flex items-center gap-2 flex-wrap justify-end">
+            ${prBadgeHtml}
+            <span class="text-xs text-gray-400 dark:text-gray-500">${date}</span>
+          </div>
         </div>
         ${commentHtml}
       </div>`;
