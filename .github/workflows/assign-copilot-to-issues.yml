@@ -18,12 +18,59 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             try {
-              await github.rest.issues.addAssignees({
+              const repoInfoQuery = `
+                query($owner: String!, $name: String!, $issueNumber: Int!) {
+                  repository(owner: $owner, name: $name) {
+                    suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
+                      nodes {
+                        login
+                        id
+                      }
+                    }
+                    issue(number: $issueNumber) {
+                      id
+                    }
+                  }
+                }
+              `;
+
+              const repoInfo = await github.graphql(repoInfoQuery, {
                 owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                assignees: ['copilot-swe-agent']
+                name: context.repo.repo,
+                issueNumber: context.issue.number,
               });
+
+              const copilotBot = repoInfo.repository.suggestedActors.nodes.find(
+                (node) => node.login === 'copilot-swe-agent'
+              );
+
+              if (!copilotBot) {
+                core.warning(`copilot-swe-agent is not available as a suggested actor for this repository`);
+                return;
+              }
+
+              const issueId = repoInfo.repository.issue.id;
+
+              const assignMutation = `
+                mutation($assignableId: ID!, $assigneeIds: [ID!]!) {
+                  addAssigneesToAssignable(input: { assignableId: $assignableId, assigneeIds: $assigneeIds }) {
+                    assignable {
+                      ... on Issue {
+                        number
+                        assignees(first: 10) {
+                          nodes { login }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              await github.graphql(assignMutation, {
+                assignableId: issueId,
+                assigneeIds: [copilotBot.id],
+              });
+
               core.info(`Assigned Copilot to issue #${context.issue.number}`);
             } catch (err) {
               core.warning(`Failed to assign Copilot to issue #${context.issue.number}: ${err.message}`);
