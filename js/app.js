@@ -528,44 +528,74 @@ async function loadRecentBugsFromAPI(grid) {
         // -------------------------
         // Fetch linked PR via timeline
         // -------------------------
-        let linked_pr = null;
-        try {
-          const timelineRes = await fetch(
-            `${baseUrl}/issues/${issue.number}/timeline?per_page=100`,
-            { headers: { Accept: "application/vnd.github+json" } }
-          );
-          if (timelineRes.ok) {
-            const events = await timelineRes.json();
-            const prCandidates = events
-              .filter(
-                (e) =>
-                  e.event === "cross-referenced" &&
-                  e.source?.type === "pull_request" &&
-                  e.source?.issue?.pull_request &&
-                  e.source?.issue?.html_url?.includes("/pull/")
-              )
-              .map((e) => {
-                const pr = e.source.issue;
-                const merged = pr.pull_request?.merged_at != null;
-                return {
-                  number: pr.number,
-                  title: pr.title,
-                  html_url: pr.html_url,
-                  state: merged ? "merged" : pr.state,
-                  merged,
-                };
-              });
-            linked_pr =
-              prCandidates.find((p) => p.state === "open") ||
-              prCandidates.find((p) => p.state === "merged") ||
-              prCandidates[0] ||
-              null;
+        // Prefer inline/SSR-provided data if available
+        const inlineIssue = (window.__BLT_LEADERBOARD__?.recent_bugs || [])
+          .find((b) => b.number === issue.number);
+        let linked_pr = inlineIssue?.linked_pr || null;
+
+        // Try to reuse cached linked PR from this session to avoid extra API calls
+        if (!linked_pr && typeof sessionStorage !== "undefined") {
+          const cacheKey = `linked_pr_cache:${baseUrl}:#${issue.number}`;
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            try {
+              linked_pr = JSON.parse(cached);
+            } catch (e) {
+              // Ignore malformed cache
+            }
           }
-        } catch (error) {
-          console.warn(
-            `Failed to fetch timeline for issue #${issue.number}`,
-            error
-          );
+        }
+
+        // Only hit the unauthenticated /timeline endpoint if we still don't have a linked PR
+        if (!linked_pr) {
+          try {
+            const timelineRes = await fetch(
+              `${baseUrl}/issues/${issue.number}/timeline?per_page=100`,
+              { headers: { Accept: "application/vnd.github+json" } }
+            );
+            if (timelineRes.ok) {
+              const events = await timelineRes.json();
+              const prCandidates = events
+                .filter(
+                  (e) =>
+                    e.event === "cross-referenced" &&
+                    e.source?.type === "pull_request" &&
+                    e.source?.issue?.pull_request &&
+                    e.source?.issue?.html_url?.includes("/pull/")
+                )
+                .map((e) => {
+                  const pr = e.source.issue;
+                  const merged = pr.pull_request?.merged_at != null;
+                  return {
+                    number: pr.number,
+                    title: pr.title,
+                    html_url: pr.html_url,
+                    state: merged ? "merged" : pr.state,
+                    merged,
+                  };
+                });
+              linked_pr =
+                prCandidates.find((p) => p.state === "open") ||
+                prCandidates.find((p) => p.state === "merged") ||
+                prCandidates[0] ||
+                null;
+
+              // Cache the result for this session to reduce repeated calls
+              if (linked_pr && typeof sessionStorage !== "undefined") {
+                const cacheKey = `linked_pr_cache:${baseUrl}:#${issue.number}`;
+                try {
+                  sessionStorage.setItem(cacheKey, JSON.stringify(linked_pr));
+                } catch (e) {
+                  // Ignore storage quota/unavailable errors
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(
+              `Failed to fetch timeline for issue #${issue.number}`,
+              error
+            );
+          }
         }
 
         return {

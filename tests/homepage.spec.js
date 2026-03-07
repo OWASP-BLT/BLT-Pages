@@ -77,3 +77,21 @@ test('dynamic sections are pre-rendered in HTML without waiting for JS', async (
   expect(statBugs, 'stat-total-bugs should be pre-rendered (not "-")').not.toBe('-');
   expect(statBugs, 'stat-total-bugs should not be empty').not.toBe('');
 });
+
+test('PR badge is pre-rendered for bug cards that have a linked PR', async ({ page }) => {
+  // Block JS so we are only testing the SSR pre-rendered output
+  await page.route('**/js/app.js', route => route.abort());
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+  // Locate all PR badge links inside the recent-bugs-grid
+  const prBadges = page.locator('#recent-bugs-grid a[href*="/pull/"]');
+
+  // At least one bug card should show a linked PR badge
+  const count = await prBadges.count();
+  expect(count, 'at least one PR badge should be pre-rendered').toBeGreaterThan(0);
+
+  // The first badge must link to a valid GitHub pull-request URL
+  const href = await prBadges.first().getAttribute('href');
+  expect(href, 'PR badge href should contain /pull/').toMatch(/\/pull\/\d+/);
+});
