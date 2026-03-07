@@ -142,7 +142,8 @@
       "reactions": {
         "+1": 1
       },
-      "latest_comment": null
+      "latest_comment": null,
+      "is_video": false
     },
     {
       "number": 8,
@@ -167,11 +168,12 @@
           "avatar_url": "https://avatars.githubusercontent.com/u/82692857?v=4",
           "profile_url": "https://github.com/swaparup36"
         }
-      }
+      },
+      "is_video": false
     },
     {
       "number": 6,
-      "title": "[BUG] page always shows loading screen even though it’s loaded before",
+      "title": "[BUG] page always shows loading screen even though it\u2019s loaded before",
       "html_url": "https://github.com/OWASP-BLT/BLT-Pages/issues/6",
       "created_at": "2026-03-01T07:04:11Z",
       "comment_count": 3,
@@ -192,7 +194,8 @@
           "avatar_url": "https://avatars.githubusercontent.com/u/154744962?v=4",
           "profile_url": "https://github.com/azizrebhi"
         }
-      }
+      },
+      "is_video": false
     }
   ]
 }
