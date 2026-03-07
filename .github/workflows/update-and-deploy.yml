@@ -247,14 +247,22 @@ jobs:
                 profile_url: data.profile_url,
               }));
 
-            // Extract first image URL from an issue body (markdown or HTML)
-            function extractFirstImage(body) {
-              if (!body) return null;
-              const mdMatch = body.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
-              if (mdMatch) return mdMatch[1];
-              const htmlMatch = body.match(/<img[^>]+src=["'](https?:\/\/[^\s"']+)["']/i);
-              if (htmlMatch) return htmlMatch[1];
-              return null;
+            // Extract first media (image or video) URL from an issue body (markdown or HTML)
+            function extractFirstMedia(body) {
+              if (!body) return { image_url: null, is_video: false };
+              // Markdown image: ![alt](url)
+              const mdImgMatch = body.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+              if (mdImgMatch) return { image_url: mdImgMatch[1], is_video: false };
+              // HTML img tag: <img src="url">
+              const htmlImgMatch = body.match(/<img[^>]+src=["'](https?:\/\/[^\s"']+)["']/i);
+              if (htmlImgMatch) return { image_url: htmlImgMatch[1], is_video: false };
+              // HTML video tag: <video src="url"> or <source src="url">
+              const htmlVideoMatch = body.match(/<(?:video|source)[^>]+src=["'](https?:\/\/[^\s"']+)["']/i);
+              if (htmlVideoMatch) return { image_url: htmlVideoMatch[1], is_video: true };
+              // Plain GitHub user-attachments URL (video uploaded to GitHub issue)
+              const plainVideoMatch = body.match(/(https?:\/\/github\.com\/user-attachments\/assets\/[a-zA-Z0-9-]+)/);
+              if (plainVideoMatch) return { image_url: plainVideoMatch[1], is_video: true };
+              return { image_url: null, is_video: false };
             }
 
             // Build a map from issue number to its fetched comments
@@ -281,7 +289,7 @@ jobs:
                   avatar_url:  issue.user.avatar_url,
                   profile_url: issue.user.html_url,
                 },
-                image_url: extractFirstImage(issue.body),
+                ...extractFirstMedia(issue.body),
                 domain:    extractDomain(issue.body),
                 reactions: (function() {
                   const r = issue.reactions || {};
@@ -522,7 +530,9 @@ jobs:
             } else {
               recentBugsHtml = bugs.map(bug => {
                 const imgHtml = bug.image_url
-                  ? `<div class="aspect-video bg-gray-100 dark:bg-gray-800 rounded-xl mb-4 overflow-hidden flex-shrink-0"><img src="${escHtml(bug.image_url)}" alt="Bug screenshot" class="w-full h-full object-cover" loading="lazy" onerror="this.parentElement.classList.add(&#039;hidden&#039;)" /></div>`
+                  ? (bug.is_video
+                    ? `<div class="aspect-video bg-gray-100 dark:bg-gray-800 rounded-xl mb-4 overflow-hidden flex-shrink-0"><video src="${escHtml(bug.image_url)}" class="w-full h-full object-cover" muted autoplay loop playsinline controls onerror="this.parentElement.classList.add(&#039;hidden&#039;)"></video></div>`
+                    : `<div class="aspect-video bg-gray-100 dark:bg-gray-800 rounded-xl mb-4 overflow-hidden flex-shrink-0"><img src="${escHtml(bug.image_url)}" alt="Bug screenshot" class="w-full h-full object-cover" loading="lazy" onerror="this.parentElement.classList.add(&#039;hidden&#039;)" /></div>`)
                   : `<div class="aspect-video bg-gray-100 dark:bg-gray-800 rounded-xl mb-4 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-bug text-4xl text-gray-300 dark:text-gray-600" aria-hidden="true"></i></div>`;
                 const date = new Date(bug.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 const avatarUrl = escHtml(bug.user.avatar_url || `https://github.com/${bug.user.login}.png`);
